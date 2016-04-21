@@ -41,11 +41,7 @@ let rec patMatch (pat:mopat) (value:movalue) : moenv =
                                         ([],[]) -> Env.empty_env()
                                       | ([],_) -> raise MatchFailure
                                       | (_,[]) -> raise MatchFailure
-                                      | (h1::t1,h2::t2) -> (match h1 with
-                                                              VarPat(s) -> Env.add_binding s h2 (patMatch (TuplePat(t1)) (TupleVal(t2)))
-                                                            | TuplePat(_) -> Env.combine_envs (patMatch h1 h2) (patMatch (TuplePat(t1)) (TupleVal(t2)))
-                                                            | _ -> raise MatchFailure
-                                                           )
+                                      | (h1::t1,h2::t2) -> Env.combine_envs (patMatch h1 h2) (patMatch (TuplePat(t1)) (TupleVal(t2)))
                                       )
     | (DataPat(s1,op1), DataVal(s2,op2)) when s1=s2 -> (match (op1,op2) with
                                                           (None, None) -> Env.empty_env()
@@ -71,7 +67,8 @@ let rec evalExpr (e:moexpr) (env:moenv) : movalue =
       (* an integer constant evaluates to itself *)
       IntConst(i) -> IntVal(i)
     | BoolConst(i) -> BoolVal(i)
-    | Var(s) -> Env.lookup s env
+    | Var(s) -> (try (Env.lookup s env) with
+                  Env.NotBound -> raise (DynamicTypeError "Variable is unbound"))
     | BinOp(e1,op,e2) -> (let r1 = (evalExpr e1 env) in
                           let r2 = (evalExpr e2 env) in
                           match (r1,r2) with
@@ -99,6 +96,7 @@ let rec evalExpr (e:moexpr) (env:moenv) : movalue =
                                                             None -> (evalExpr e (Env.combine_envs en argEnv))
                                                           | Some s -> (evalExpr e (Env.add_binding s (FunctionVal(o,p,e,en)) (Env.combine_envs en argEnv)))
                                                           )
+                              | _ -> raise (DynamicTypeError "Invalid function call")
                              )
     | Match(e, l) -> (match (e, l) with
                         (_,[]) -> raise MatchFailure 
