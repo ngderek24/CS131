@@ -115,11 +115,7 @@ let rec evalExpr (e:moexpr) (env:moenv) : movalue =
                   )
     | Data(s, e) -> (match e with
                       None -> DataVal(s, None)
-                    | Some IntConst(i) -> DataVal(s, Some (IntVal(i)))
-                    | Some BoolConst(b) -> DataVal(s, Some (BoolVal(b)))
-                    | Some Negate(i) -> DataVal(s, Some (evalExpr (Negate(i)) env))
-                    | Some Tuple(l) -> DataVal(s, Some (evalExpr (Tuple(l)) env))
-                    | Some Data(s,ex) -> DataVal(s, Some (evalExpr (Data(s,ex)) env))
+                    | Some exp -> DataVal(s, Some (evalExpr exp env))
                     | _ -> raise (DynamicTypeError "Invalid data")
                     )
     | _ -> raise MatchFailure
