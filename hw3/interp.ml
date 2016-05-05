@@ -47,12 +47,7 @@ let rec patMatch (pat:mopat) (value:movalue) : moenv =
                                                           (None, None) -> Env.empty_env()
                                                         | (None, _) -> raise MatchFailure
                                                         | (_, None) -> raise MatchFailure
-                                                        | (Some p1, Some p2) -> (match (p1,p2) with
-                                                                        (VarPat(s),_) -> Env.add_binding s p2 (Env.empty_env())
-                                                                      | (TuplePat(_),TupleVal(_)) -> patMatch p1 p2
-                                                                      | (DataPat(_,_),DataVal(_,_)) -> patMatch p1 p2
-                                                                      | _ -> raise MatchFailure
-                                                                      )
+                                                        | (Some p1, Some p2) -> patMatch p1 p2
                                                        )
     | _ -> raise MatchFailure
 
