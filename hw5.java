@@ -155,9 +155,10 @@ class PPMImage {
 
 	// implement using Java's Fork/Join library
     public PPMImage gaussianBlur(int radius, double sigma) {
-		//RGB[] blurred = (new GaussianBlur(pixels, 0, this.height, this.width, radius, sigma)).compute();
-		//return new PPMImage(this.width, this.height, this.maxColorVal, blurred);
-    	throw new ImplementMe();
+		RGB[] blurred = new RGB[this.height * this.width];
+		GaussianBlur img = new GaussianBlur(blurred, pixels, 0, this.height, this.width, radius, sigma);
+		img.compute();
+		return new PPMImage(this.width, this.height, this.maxColorVal, blurred);
     }
 
 }
@@ -180,9 +181,9 @@ class MirrorImage extends RecursiveAction {
 		if (mid > SEQUENTIAL_CUTOFF) {		// recursively divide image in half to parallelize swapping
 			MirrorImage upper = new MirrorImage(mirrored, pixels, top, mid, width);
 			MirrorImage lower;
-			if (height % 2 == 0)	// even number of pixels
+			if (height % 2 == 0)			// even number of pixels
 				lower = new MirrorImage(mirrored, pixels, top + mid, mid, width);
-			else					// odd number of pixels so add one to height
+			else							// odd number of pixels so add one to height
 				lower = new MirrorImage(mirrored, pixels, top + mid, mid + 1, width);
 			upper.fork();					// swap upper section in parallel
 			lower.compute();
@@ -195,58 +196,15 @@ class MirrorImage extends RecursiveAction {
 		}
 	}
 }
-/*
-class MirrorImage extends RecursiveTask<RGB[]> {
-	private final int SEQUENTIAL_CUTOFF = 200;
-	private RGB[] pixels;
-	private int top, width, height;
 
-	public MirrorImage(RGB[] pixels, int top, int height, int width) {
-		this.pixels = pixels;
-		this.top = top;
-		this.height = height;
-		this.width = width;
-	}
-	
-	public RGB[] compute() {
-		int mid = height / 2;
-		if (mid > SEQUENTIAL_CUTOFF) {		// recursively divide image in half to parallelize swapping
-			MirrorImage upper = new MirrorImage(pixels, top, mid, width);
-			MirrorImage lower;
-			if (height % 2 == 0)	// even number of pixels
-				lower = new MirrorImage(pixels, top + mid, mid, width);
-			else					// odd number of pixels so add one to height
-				lower = new MirrorImage(pixels, top + mid, mid + 1, width);
-			upper.fork();					// swap upper section in parallel
-			RGB[] lowerSwapped = lower.compute();
-			RGB[] upperSwapped = upper.join();
-
-			// reassemble swapped RGB array
-			RGB[] swapped = new RGB[height * width];
-			int upperLen = upperSwapped.length;
-			for (int i = 0; i < upperSwapped.length; i++)
-				swapped[i] = upperSwapped[i];
-			for (int j = upperLen; j < lowerSwapped.length + upperLen; j++)
-				swapped[j] = lowerSwapped[j - upperLen];
-			return swapped;
-		} else { 						// swap left half with right half
-			RGB[] swapped = new RGB[width * height];
-			// swap each row of pixels
-			for (int i = 0; i < height; i++)
-				for (int j = 0; j < width; j++)
-					swapped[(i*width) + j] = pixels[((i + top) * width) + width - j - 1];
-			return swapped;
-		}
-	}
-} */
-/*
-class GaussianBlur extends RecursiveTask<RGB[]> {
-	private final int SEQUENTIAL_CUTOFF = 300;
-	private RGB[] pixels;
+class GaussianBlur extends RecursiveAction {
+	private final int SEQUENTIAL_CUTOFF = 100;
+	private RGB[] blurred, pixels;
 	private int top, width, height, radius;
 	private double sigma;
 
-	public GaussianBlur(RGB[] pixels, int top, int height, int width, int radius, double sigma) {
+	public GaussianBlur(RGB[] blurred, RGB[] pixels, int top, int height, int width, int radius, double sigma) {
+		this.blurred = blurred;
 		this.pixels = pixels;
 		this.top = top;
 		this.height = height;
@@ -255,71 +213,66 @@ class GaussianBlur extends RecursiveTask<RGB[]> {
 		this.sigma = sigma;
 	}
 
-	public RGB[] compute() {
+	public void compute() {
 		int mid = height / 2;
-		if (mid > SEQUENTIAL_CUTOFF) {
-			GaussianBlur upper = new GaussianBlur(pixels, top, mid, width, radius, sigma);
+		if (mid > SEQUENTIAL_CUTOFF) {		// recursively divide image in half to parallelize blurring
+			GaussianBlur upper = new GaussianBlur(blurred, pixels, top, mid, width, radius, sigma);
 			GaussianBlur lower;
-			if (height % 2 == 0)	// even number of pixels
-				lower = new GaussianBlur(pixels, top + mid, mid, width, radius, sigma);
-			else					// odd number of pixels so add one to height
-				lower = new GaussianBlur(pixels, top + mid, mid + 1, width, radius, sigma);
+			if (height % 2 == 0)			// even number of pixels
+				lower = new GaussianBlur(blurred, pixels, top + mid, mid, width, radius, sigma);
+			else							// odd number of pixels so add one to height
+				lower = new GaussianBlur(blurred, pixels, top + mid, mid + 1, width, radius, sigma);
 			upper.fork();					// swap upper section in parallel
-			RGB[] lowerBlurred = lower.compute();
-			RGB[] upperBlurred = upper.join();
-
-			// reassemble blurred RGB array
-			RGB[] blurred = new RGB[height * width];
-			int upperLen = upperBlurred.length;
-			for (int i = 0; i < upperBlurred.length; i++)
-				blurred[i] = upperBlurred[i];
-			for (int j = upperLen; j < lowerBlurred.length + upperLen; j++)
-				blurred[j] = lowerBlurred[j - upperLen];
-			return blurred;
-		} else {				// blur each pixel using gaussianFilter
-			RGB[] blurred = new RGB[width * height];
+			lower.compute();
+			upper.join();
+		} else {				
+			// blur each pixel using gaussianFilter
+			int fullHeight = pixels.length / width;
 			Gaussian gaussian = new Gaussian();
 			double[][] filter = gaussian.gaussianFilter(radius, sigma);
-			for (int i = 0; i < height; i++) {
+			for (int i = top; i < top + height; i++) {
 				for (int j = 0; j < width; j++) {
-					RGB current = pixels[(i*width) + j];
-					Long currentR, currentG, currentB;
+					RGB current = pixels[(i * width) + j];
+					float currentR = 0;
+					float currentG = 0;
+					float currentB = 0;
 					for (int k = 0; k < filter.length; k++) {
 						for (int l = 0; l < filter.length; l++) {
-							int pixelIndex = ((i - radius + k) * width) + j - radius + l;
+							int pixelIndex = 0;
+							if ((i - radius + k) < 0 && (j - radius + l) < 0)
+								pixelIndex = 0;
+							else if ((i - radius + k) < 0 && (j - radius + l) >= width)
+								pixelIndex = width - 1;
+							else if ((i - radius + k) >= fullHeight && (j - radius + l) >= width)
+								pixelIndex = pixels.length - 1;
+							else if ((j - radius + l) < 0 && (i - radius + k) >= fullHeight)
+								pixelIndex = (fullHeight - 1) * width;
+							else if ((i - radius + k) < 0)
+								pixelIndex = j - radius + l;
+							else if ((j - radius + l) < 0)
+								pixelIndex = (i - radius + k) * width;
+							else if ((i - radius + k) >= fullHeight)
+								pixelIndex = ((fullHeight - 1) * width) + j - radius + l;
+							else if ((j - radius + l) >= width)
+								pixelIndex = ((i - radius + k) * width) + (width - 1);
+							else
+								pixelIndex = ((i - radius + k) * width) + j - radius + l;
+
 							currentR += filter[k][l] * pixels[pixelIndex].R;
 							currentG += filter[k][l] * pixels[pixelIndex].G;
 							currentB += filter[k][l] * pixels[pixelIndex].B;
 						}
 					}
-					/*
-					Long currentR = Math.round((filter[0][0] * pixels[((i-1)*width) + j - 1].R) + (filter[0][1] * pixels[((i-1)*width) + j].R)
-											+ (filter[0][2] * pixels[((i-1)*width) + j + 1].R) + (filter[1][0] * pixels[(i*width) + j -1].R)
-											+ (filter[1][1] * pixels[(i*width) + j].R) + (filter[1][2] * pixels[(i*width) + j + 1].R)
-											+ (filter[2][0] * pixels[((i+1)*width) + j - 1].R) + (filter[2][1] * pixels[((i+1)*width) + j].R)
-											+ (filter[2][2] * pixels[((i+1)*width) + j + 1].R));
-					Long currentG = Math.round((filter[0][0] * pixels[((i-1)*width) + j - 1].G) + (filter[0][1] * pixels[((i-1)*width) + j].G)
-											+ (filter[0][2] * pixels[((i-1)*width) + j + 1].G) + (filter[1][0] * pixels[(i*width) + j - 1].G)
-											+ (filter[1][1] * pixels[(i*width) + j].G) + (filter[1][2] * pixels[(i*width) + j + 1].G)
-											+ (filter[2][0] * pixels[((i+1)*width) + j - 1].G) + (filter[2][1] * pixels[((i+1)*width) + j].G)
-											+ (filter[2][2] * pixels[((i+1)*width) + j + 1].G));
-					Long currentB = Math.round((filter[0][0] * pixels[((i-1)*width) + j - 1].B) + (filter[0][1] * pixels[((i-1)*width) + j].B)
-											+ (filter[0][2] * pixels[((i-1)*width) + j + 1].B) + (filter[1][0] * pixels[(i*width) + j -1].B)
-											+ (filter[1][1] * pixels[(i*width) + j].B) + (filter[1][2] * pixels[(i*width) + j + 1].B)
-											+ (filter[2][0] * pixels[((i+1)*width) + j - 1].B) + (filter[2][1] * pixels[((i+1)*width) + j].B)
-											+ (filter[2][2] * pixels[((i+1)*width) + j + 1].B));
-					
-					current.R = Math.round(currentR).intValue();
-					current.G = Math.round(currentG).intValue();
-					current.B = Math.round(currentB).intValue();
+					current.R = Math.round(currentR);
+					current.G = Math.round(currentG);
+					current.B = Math.round(currentB);
 					blurred[(i*width) + j] = current;
 				}
 			}
-			return blurred;
 		}
 	}
 }
-*/
+
 // code for creating a Gaussian filter
 class Gaussian {
 
@@ -355,29 +308,23 @@ class Test {
 		PPMImage orig = new PPMImage("florence.ppm");
 
 		// test negated image
-		/*
-		PPMImage negated = orig.negate();
-		negated.toFile("negated.ppm");
-		*/
+		//PPMImage negated = orig.negate();
+		//negated.toFile("negated.ppm");
+
 		// test greyscaled image
-		/*
-		PPMImage greyscaled = orig.greyscale();
-		greyscaled.toFile("greyscaled.ppm");
-		*/
-		// test mirrorImage
+		//PPMImage greyscaled = orig.greyscale();
+		//greyscaled.toFile("greyscaled.ppm");
 		
-		PPMImage mirrored = orig.mirrorImage();
-		mirrored.toFile("mirrored.ppm");
+		// test mirrorImage
+		//PPMImage mirrored = orig.mirrorImage();
+		//mirrored.toFile("mirrored.ppm");
 		
 		// test mirrorImage2
-		/*
-		PPMImage mirrored = orig.mirrorImage2();
-		mirrored.toFile("mirrored.ppm");
-		*/
-		// test gaussianBlur
-		/*
-		PPMImage blurred = orig.gaussianBlur(1, 2.0);
+		//PPMImage mirrored = orig.mirrorImage2();
+		//mirrored.toFile("mirrored.ppm");
+
+		// test gaussianBlur		
+		PPMImage blurred = orig.gaussianBlur(80, 2.0);
 		blurred.toFile("blurred.ppm");
-		*/
 	}
 }
