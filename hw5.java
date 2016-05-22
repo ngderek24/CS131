@@ -111,10 +111,7 @@ class PPMImage {
 		RGB[] negated = Arrays.stream(pixels)
 		 					  .parallel()		
 							  .map(rgb -> {		// change each rgb value to negate image
-								  rgb.R = this.maxColorVal - rgb.R;
-								  rgb.G = this.maxColorVal - rgb.G;	
-								  rgb.B = this.maxColorVal - rgb.B;
-								  return rgb;
+								  return new RGB(this.maxColorVal - rgb.R, this.maxColorVal - rgb.G, this.maxColorVal - rgb.B);
 							  })
 							  .toArray(RGB[]::new);
 		return new PPMImage(this.width, this.height, this.maxColorVal, negated);	// construct a new PPMImage
@@ -126,10 +123,7 @@ class PPMImage {
 								 .parallel()
 								 .map(rgb -> {	// compute new pixel value and change each RGB
 								 	int newValue = Math.round((0.299f * rgb.R) + (0.587f * rgb.G) + (0.114f * rgb.B));
-								 	rgb.R = newValue;
-								 	rgb.G = newValue;
-								 	rgb.B = newValue;
-								 	return rgb;
+								 	return new RGB(newValue, newValue, newValue);
 								 })
 								 .toArray(RGB[]::new);
 		return new PPMImage(this.width, this.height, this.maxColorVal, greyscaled);	// construct a new PPMImage
@@ -147,6 +141,7 @@ class PPMImage {
 	// implement using Java 8 Streams
     public PPMImage mirrorImage2() {
 		RGB[] mirrored = IntStream.range(0, width*height)
+								  .parallel()
 								  .mapToObj(i -> {				// simulate swapping by finding the corresponding RGB object in pixels
 								      return pixels[((i/width) + 1) * width - (i % width) - 1];
 								  })
@@ -158,7 +153,12 @@ class PPMImage {
     public PPMImage gaussianBlur(int radius, double sigma) {
     	// create new RGB array to represent the blurred image by using compute() of GaussianBlur
 		RGB[] blurred = new RGB[this.height * this.width];
-		GaussianBlur img = new GaussianBlur(blurred, pixels, 0, this.height, this.width, radius, sigma);
+		Gaussian gaussian = new Gaussian();
+		double[][] filter = gaussian.gaussianFilter(radius, sigma);
+		for (int i = 0; i < filter.length; i++)
+			for (int j = 0; j < filter.length; j++)
+				System.out.println(filter[i][j]);
+		GaussianBlur img = new GaussianBlur(blurred, pixels, 0, this.height, this.width, radius, filter);
 		img.compute();
 		return new PPMImage(this.width, this.height, this.maxColorVal, blurred);
     }
@@ -170,7 +170,7 @@ class PPMImage {
 }
 
 class MirrorImage extends RecursiveAction {
-	private final int SEQUENTIAL_CUTOFF = 100;
+	private final int SEQUENTIAL_CUTOFF = 5;
 	private RGB[] mirrored, pixels;
 	private int top, width, height;
 
@@ -204,51 +204,51 @@ class MirrorImage extends RecursiveAction {
 }
 
 class GaussianBlur extends RecursiveAction {
-	private final int SEQUENTIAL_CUTOFF = 100;
+	private final int SEQUENTIAL_CUTOFF = 5;
 	private RGB[] blurred, pixels;
 	private int top, width, height, radius;
-	private double sigma;
+	private double[][] filter;
 
-	public GaussianBlur(RGB[] blurred, RGB[] pixels, int top, int height, int width, int radius, double sigma) {
+	public GaussianBlur(RGB[] blurred, RGB[] pixels, int top, int height, int width, int radius, double[][] filter) {
 		this.blurred = blurred;
 		this.pixels = pixels;
 		this.top = top;
 		this.height = height;
 		this.width = width;
 		this.radius = radius;
-		this.sigma = sigma;
+		this.filter = filter;
 	}
 
 	public void compute() {
 		int mid = height / 2;
 		if (mid > SEQUENTIAL_CUTOFF) {		// recursively divide image in half to parallelize blurring
-			GaussianBlur upper = new GaussianBlur(blurred, pixels, top, mid, width, radius, sigma);
+			GaussianBlur upper = new GaussianBlur(blurred, pixels, top, mid, width, radius, filter);
 			GaussianBlur lower;
 			if (height % 2 == 0)			// even number of pixels
-				lower = new GaussianBlur(blurred, pixels, top + mid, mid, width, radius, sigma);
+				lower = new GaussianBlur(blurred, pixels, top + mid, mid, width, radius, filter);
 			else							// odd number of pixels so add one to height
-				lower = new GaussianBlur(blurred, pixels, top + mid, mid + 1, width, radius, sigma);
+				lower = new GaussianBlur(blurred, pixels, top + mid, mid + 1, width, radius, filter);
 			upper.fork();					// swap upper section in parallel
 			lower.compute();
 			upper.join();
 		} else {				
 			// blur each pixel using gaussianFilter
 			int fullHeight = pixels.length / width;
-			Gaussian gaussian = new Gaussian();
-			double[][] filter = gaussian.gaussianFilter(radius, sigma);
 
 			// use the Gaussian blur algorithm to change the RGB value of each pixel in the image
 			for (int i = top; i < top + height; i++) {
 				for (int j = 0; j < width; j++) {
 					RGB current = pixels[(i * width) + j];
-					float currentR = 0;
-					float currentG = 0;
-					float currentB = 0;
-					
+					double currentR = 0.0;
+					double currentG = 0.0;
+					double currentB = 0.0;
+
 					// use "clamping semantics" to find the right pixel to multiply with the gaussianFilter
 					for (int k = 0; k < filter.length; k++) {
 						for (int l = 0; l < filter.length; l++) {
-							int pixelIndex = 0;
+							int row = i - radius + k;
+							int column = j - radius + l;
+							/*
 							if ((i - radius + k) < 0 && (j - radius + l) < 0)
 								pixelIndex = 0;
 							else if ((i - radius + k) < 0 && (j - radius + l) >= width)
@@ -267,15 +267,28 @@ class GaussianBlur extends RecursiveAction {
 								pixelIndex = ((i - radius + k) * width) + (width - 1);
 							else
 								pixelIndex = ((i - radius + k) * width) + j - radius + l;
+							*/
+							// check if row is out of bounds
+							if (row < 0)
+								row = 0;
+							else if (row >= fullHeight)
+								row = fullHeight - 1;
+							// check if column is out of bounds
+							if (column < 0)
+								column = 0;
+							else if (column >= width)
+								column = width - 1;
+
+							int pixelIndex = (width * row) + column;
 
 							currentR += filter[k][l] * pixels[pixelIndex].R;
 							currentG += filter[k][l] * pixels[pixelIndex].G;
 							currentB += filter[k][l] * pixels[pixelIndex].B;
 						}
 					}
-					current.R = Math.round(currentR);
-					current.G = Math.round(currentG);
-					current.B = Math.round(currentB);
+					current.R = Math.round((float)currentR);
+					current.G = Math.round((float)currentG);
+					current.B = Math.round((float)currentB);
 					blurred[(i*width) + j] = current;
 				}
 			}
@@ -315,47 +328,48 @@ class Gaussian {
 // testing purposes
 class Test {
 	public static void main(String[] args) throws Exception {
-		//long startTime = System.currentTimeMillis();
-		/*
-		PPMImage orig = new PPMImage("test.ppm");
+		long startTime = System.currentTimeMillis();
+		
+		PPMImage orig = new PPMImage("florence.ppm");
 		
 		// test negated image
-		RGB[] testNegated = {new RGB(228, 160, 149), new RGB(252, 184, 173), new RGB(41, 55, 55),
-					 		 new RGB(124, 56, 45), new RGB(154, 86, 75), new RGB(192, 206, 206),
-					 		 new RGB(92, 217, 255), new RGB(18, 143, 225), new RGB(0, 255, 49)};
-		PPMImage test = new PPMImage(3, 3, 255, testNegated);
+		//RGB[] testNegated = {new RGB(228, 160, 149), new RGB(252, 184, 173), new RGB(41, 55, 55),
+		//			 		 new RGB(124, 56, 45), new RGB(154, 86, 75), new RGB(192, 206, 206),
+		//			 		 new RGB(92, 217, 255), new RGB(18, 143, 225), new RGB(0, 255, 49)};
+		//PPMImage test = new PPMImage(3, 3, 255, testNegated);
 		PPMImage negated = orig.negate();
-		assert(negated.equals(test));
-		//negated.toFile("negated.ppm");
+		//assert(negated.equals(test));
+		negated.toFile("negated.ppm");
 
 		// test greyscaled image
-		RGB[] testGreyscale = {new RGB(76, 76, 76), new RGB(52, 52, 52), new RGB(204, 204, 204),
-					 		   new RGB(180, 180, 180), new RGB(150, 150, 150), new RGB(53, 53, 53),
-					 		   new RGB(71, 71, 71), new RGB(140, 140, 140), new RGB(100, 100, 100)};
-		test = new PPMImage(3, 3, 255, testGreyscale);
+		//RGB[] testGreyscale = {new RGB(76, 76, 76), new RGB(52, 52, 52), new RGB(204, 204, 204),
+		//			 		   new RGB(180, 180, 180), new RGB(150, 150, 150), new RGB(53, 53, 53),
+		//			 		   new RGB(71, 71, 71), new RGB(140, 140, 140), new RGB(100, 100, 100)};
+		//est = new PPMImage(3, 3, 255, testGreyscale);
 		PPMImage greyscaled = orig.greyscale();
-		assert(greyscaled.equals(test));
-		//greyscaled.toFile("greyscaled.ppm");
+		//assert(greyscaled.equals(test));
+		greyscaled.toFile("greyscaled.ppm");
+
+		//assert(orig.equals(greyscaled));
 		
 		// test mirrorImage
-		RGB[] testMirrored = {new RGB(214, 200, 200), new RGB(3, 71, 82), new RGB(27, 95, 106),
-					 		  new RGB(63, 49, 49), new RGB(101, 169, 180), new RGB(131, 199, 210),
-					 		  new RGB(255, 0, 206), new RGB(237, 112, 30), new RGB(163, 38, 0)};
-		test = new PPMImage(3, 3, 255, testMirrored);
+		//RGB[] testMirrored = {new RGB(214, 200, 200), new RGB(3, 71, 82), new RGB(27, 95, 106),
+		//			 		  new RGB(63, 49, 49), new RGB(101, 169, 180), new RGB(131, 199, 210),
+		//			 		  new RGB(255, 0, 206), new RGB(237, 112, 30), new RGB(163, 38, 0)};
+		//test = new PPMImage(3, 3, 255, testMirrored);
 		PPMImage mirrored = orig.mirrorImage();
-		assert(mirrored.equals(test));
-		//mirrored.toFile("mirrored.ppm");
+		//assert(mirrored.equals(test));
+		mirrored.toFile("mirrored.ppm");
 		
 		// test mirrorImage2
 		mirrored = orig.mirrorImage2();
-		assert(mirrored.equals(test));
-		//mirrored.toFile("mirrored.ppm");	
-
+		//assert(mirrored.equals(test));
+		mirrored.toFile("mirrored2.ppm");	
+		
 		// test gaussianBlur		
-		//PPMImage blurred = orig.gaussianBlur(20, 40.0);
-		//blurred.toFile("blurred.ppm");
-		*/
-		//long stopTime = System.currentTimeMillis();
-		//System.out.println(stopTime - startTime);
+		orig.gaussianBlur(1, 2.0).toFile("blurred.ppm");
+		
+		long stopTime = System.currentTimeMillis();
+		System.out.println(stopTime - startTime);
 	}
 }
