@@ -155,18 +155,10 @@ class PPMImage {
 		RGB[] blurred = new RGB[this.height * this.width];
 		Gaussian gaussian = new Gaussian();
 		double[][] filter = gaussian.gaussianFilter(radius, sigma);
-		for (int i = 0; i < filter.length; i++)
-			for (int j = 0; j < filter.length; j++)
-				System.out.println(filter[i][j]);
 		GaussianBlur img = new GaussianBlur(blurred, pixels, 0, this.height, this.width, radius, filter);
 		img.compute();
 		return new PPMImage(this.width, this.height, this.maxColorVal, blurred);
     }
-    /*
-    public boolean equals(PPMImage test) {
-    	return Arrays.equals(this.pixels, test.pixels) && this.width == test.width && this.height == test.height && this.maxColorVal == test.maxColorVal;
-    }
-	*/
 }
 
 class MirrorImage extends RecursiveAction {
@@ -238,7 +230,7 @@ class GaussianBlur extends RecursiveAction {
 			// use the Gaussian blur algorithm to change the RGB value of each pixel in the image
 			for (int i = top; i < top + height; i++) {
 				for (int j = 0; j < width; j++) {
-					RGB current = pixels[(i * width) + j];
+					RGB current = new RGB(0, 0, 0);
 					double currentR = 0.0;
 					double currentG = 0.0;
 					double currentB = 0.0;
@@ -248,26 +240,7 @@ class GaussianBlur extends RecursiveAction {
 						for (int l = 0; l < filter.length; l++) {
 							int row = i - radius + k;
 							int column = j - radius + l;
-							/*
-							if ((i - radius + k) < 0 && (j - radius + l) < 0)
-								pixelIndex = 0;
-							else if ((i - radius + k) < 0 && (j - radius + l) >= width)
-								pixelIndex = width - 1;
-							else if ((i - radius + k) >= fullHeight && (j - radius + l) >= width)
-								pixelIndex = pixels.length - 1;
-							else if ((j - radius + l) < 0 && (i - radius + k) >= fullHeight)
-								pixelIndex = (fullHeight - 1) * width;
-							else if ((i - radius + k) < 0)
-								pixelIndex = j - radius + l;
-							else if ((j - radius + l) < 0)
-								pixelIndex = (i - radius + k) * width;
-							else if ((i - radius + k) >= fullHeight)
-								pixelIndex = ((fullHeight - 1) * width) + j - radius + l;
-							else if ((j - radius + l) >= width)
-								pixelIndex = ((i - radius + k) * width) + (width - 1);
-							else
-								pixelIndex = ((i - radius + k) * width) + j - radius + l;
-							*/
+
 							// check if row is out of bounds
 							if (row < 0)
 								row = 0;
@@ -324,11 +297,11 @@ class Gaussian {
 		return kernel2d;
     }
 }
-
+/*
 // testing purposes
 class Test {
 	public static void main(String[] args) throws Exception {
-		long startTime = System.currentTimeMillis();
+		//long startTime = System.currentTimeMillis();
 		
 		PPMImage orig = new PPMImage("florence.ppm");
 		
@@ -369,7 +342,8 @@ class Test {
 		// test gaussianBlur		
 		orig.gaussianBlur(1, 2.0).toFile("blurred.ppm");
 		
-		long stopTime = System.currentTimeMillis();
-		System.out.println(stopTime - startTime);
+		//long stopTime = System.currentTimeMillis();
+		//System.out.println(stopTime - startTime);
 	}
 }
+*/
